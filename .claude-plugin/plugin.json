@@ -1,0 +1,6 @@
+{
+  "name": "agent-canvas",
+  "description": "Live browser UI for Claude Code sessions, driven by a watched JSON state file.",
+  "version": "0.0.1",
+  "keywords": ["canvas", "ui", "browser", "channel", "mcp"]
+}

@@ -1,0 +1,378 @@
+# agent-canvas — Project Specification
+
+> A Claude Code channel plugin that gives a running session a live browser UI,
+> driven by a watched JSON state file and connected via the Channels protocol.
+
+For rationale behind every architectural decision, see [agent-canvas-why.md](./agent-canvas-why.md).
+
+---
+
+## What this is
+
+A channel plugin that opens a browser tab alongside your Claude Code session. Claude writes `.canvas/ui-state.json` to update the UI. Users interact with the browser and those interactions flow back into the session as channel events.
+
+**Core principle:** Claude doesn't need special tools or awareness of the UI. It writes a JSON file — something it already does. The plugin translates that into a live browser page. If the plugin isn't running, the file just sits there. Nothing breaks.
+
+---
+
+## What it looks like in practice
+
+### Scenario: Approval flow
+
+A deploy workflow needs human sign-off. Claude populates a diff summary and waits for a decision.
+
+**`.canvas/ui-state.json`**
+```json
+{
+  "version": 1,
+  "title": "Deploy Approval",
+  "layout": "stack",
+  "components": [
+    {
+      "id": "status",
+      "type": "html",
+      "content": "<span class='badge badge-warning'>Waiting for approval</span>"
+    },
+    {
+      "id": "diff-summary",
+      "type": "markdown",
+      "content": "## Changes\n\n- Added retry logic to payment processor\n- Fixed null check in auth middleware\n- Updated 3 test files"
+    },
+    {
+      "id": "approval",
+      "type": "html",
+      "content": "<div class='card bg-base-200 shadow-lg'><div class='card-body'><h2 class='card-title'>Approve Deployment?</h2><p>These changes affect the payment and auth systems.</p><div class='card-actions justify-end'><button class='btn btn-success' data-input-event='approve'>Approve</button><button class='btn btn-error' data-input-event='reject'>Reject</button></div></div></div>"
+    }
+  ]
+}
+```
+
+When the user clicks Approve, Claude receives a channel event:
+```xml
+<channel source="agent-canvas" event="custom" component_id="approval" event_name="approve">
+User clicked approve
+</channel>
+```
+
+Claude reads this, proceeds with the deploy, and updates the status badge to success.
+
+### Scenario: Progress dashboard
+
+Claude is running a long code review. It updates the state file as it works.
+
+```json
+{
+  "version": 1,
+  "title": "Code Review",
+  "layout": "grid",
+  "components": [
+    {
+      "id": "stats",
+      "type": "html",
+      "content": "<div class='stats shadow'><div class='stat'><div class='stat-title'>Files Scanned</div><div class='stat-value'>47</div><div class='stat-desc'>of 142</div></div><div class='stat'><div class='stat-title'>Issues Found</div><div class='stat-value'>12</div><div class='stat-desc'>3 critical</div></div></div>"
+    },
+    {
+      "id": "scan-progress",
+      "type": "html",
+      "content": "<div><span class='text-sm'>Scanning... 33%</span><progress class='progress progress-primary w-full' value='33' max='100'></progress></div>"
+    },
+    {
+      "id": "issues",
+      "type": "html",
+      "content": "<div class='overflow-x-auto'><table class='table table-striped'><thead><tr><th>File</th><th>Line</th><th>Issue</th><th>Severity</th></tr></thead><tbody><tr><td>auth.kt</td><td>42</td><td>Null reference</td><td><span class='badge badge-error'>critical</span></td></tr><tr><td>api.kt</td><td>108</td><td>Unused import</td><td><span class='badge badge-info'>low</span></td></tr></tbody></table></div>"
+    }
+  ]
+}
+```
+
+The browser updates in real time as Claude writes new values. No tool calls, no special protocol — just file edits.
+
+---
+
+## Architecture
+
+```
+Claude Code session
+  --dangerously-load-development-channels
+  --channels server:./channel/index.ts
+        │
+        │ stdio (MCP channel protocol)
+        │
+┌───────▼────────────────────────────────┐
+│        Channel Plugin (Bun/TS)         │
+│                                        │
+│  • MCP server over stdio               │
+│  • Declares claude/channel capability  │
+│  • File watcher on ui-state.json       │
+│  • HTTP server (localhost)             │
+│  • SSE endpoint for browser push       │
+│  • /input endpoint receives user events│
+└───────┬────────────────────────────────┘
+        │ SSE (push HTML fragments)
+        │ HTTP POST (user input)
+        │
+┌───────▼────────────────────────────────┐
+│        Browser Tab (localhost)         │
+│                                        │
+│  • HTMX handles SSE → DOM swaps        │
+│  • DaisyUI + Tailwind for styling      │
+│  • User actions POST to /input         │
+└────────────────────────────────────────┘
+```
+
+### Claude → Browser
+
+1. Claude edits `.canvas/ui-state.json`
+2. File watcher detects the change
+3. Plugin diffs old vs new state at the component level (by `id`)
+4. Changed components are rendered to HTML fragments
+5. Fragments are pushed to the browser over SSE
+6. HTMX swaps the affected DOM nodes
+
+On any structural change (component added or removed), the plugin re-renders all components in array order. This keeps DOM order consistent with the state file.
+
+### Browser → Claude
+
+1. User clicks a button or submits a form
+2. Browser POSTs to `/input`
+3. Plugin wraps the payload as a `notifications/claude/channel` MCP event
+4. Claude receives it as a message in the session and responds
+
+---
+
+## Contract 1: The State File
+
+### Location
+
+```
+<project-root>/.canvas/ui-state.json
+```
+
+If `.canvas/ui-default.json` exists and `ui-state.json` does not, the plugin copies the default on session start. If neither exists, the plugin writes a minimal empty state.
+
+### Top-level schema
+
+```json
+{
+  "version": 1,
+  "title": "Page Title",
+  "theme": "dark",
+  "layout": "stack",
+  "autoOpen": true,
+  "components": []
+}
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `version` | `number` | `1` | Schema version for forward compatibility |
+| `title` | `string` | `"agent-canvas"` | Browser tab title and page heading |
+| `theme` | `string` | `"dark"` | DaisyUI theme name |
+| `layout` | `"stack" \| "grid" \| "sidebar"` | `"stack"` | Top-level layout mode |
+| `autoOpen` | `boolean` | `true` | Auto-open browser tab on session start |
+| `components` | `Component[]` | `[]` | Ordered list of UI components |
+
+**Layout modes:**
+- **`stack`** — vertical, full width
+- **`grid`** — 2-column responsive grid
+- **`sidebar`** — first component in sidebar (1/3), rest in main (2/3)
+
+### Component model
+
+Every component has these base fields:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | yes | Unique identifier. Used as the DOM element ID for targeted swaps. |
+| `type` | `string` | yes | Component type name. Unknown types are silently ignored. |
+| `visible` | `boolean` | no | Defaults to `true`. Set `false` to hide without removing from state. |
+
+Component types:
+
+- **`html`** — raw HTML with full access to DaisyUI + Tailwind classes. The primary way to render visual UI. Any DaisyUI component (badges, alerts, cards, stats, progress bars, navbars, tabs, etc.) can be used directly.
+- **`markdown`** — renders a markdown string as HTML. Supports raw HTML passthrough for embedded content (iframes, DaisyUI markup, etc.).
+- **`form`** — structured input form defined as JSON fields. Submissions flow back to Claude as channel events. Exists as a typed component because forms need input binding, validation, and event wiring that would be error-prone to write as raw HTML every time.
+- **`log`** — scrolling append-only log panel. Exists as a typed component because it has diff behavior — the renderer appends new entries without re-rendering the full list.
+
+The component set is extensible — new typed components can be added when a pattern benefits from structured JSON over raw HTML.
+
+---
+
+## Contract 2: Input Events
+
+All user interactions POST to `/input` and are forwarded to Claude as channel events.
+
+### Format Claude receives
+
+Events arrive as `<channel>` tags with metadata attributes:
+
+```xml
+<channel source="agent-canvas" event="form_submit" component_id="config-form">
+{"env": "staging", "run-tests": true}
+</channel>
+```
+
+### Event types
+
+| Event | Trigger | Payload |
+|---|---|---|
+| `form_submit` | Form submission | `componentId`, `data: {fieldId: value}` |
+| `custom` | Any element with `data-input-event` attribute | `componentId`, `eventName`, `data` |
+
+The `custom` event is the general-purpose mechanism for `html` components. Any element with a `data-input-event` attribute becomes interactive — clicks POST to `/input` with the event name and parent component ID.
+
+The `/input` endpoint returns `202 Accepted` immediately. It never blocks waiting for Claude to respond (see [why doc — no blocking input model](./agent-canvas-why.md#why-no-blocking-input-model)).
+
+---
+
+## Contract 3: HTTP Endpoints
+
+| Route | Method | Purpose |
+|---|---|---|
+| `/` | GET | Serves the browser page |
+| `/client.js` | GET | Serves the client script |
+| `/events` | GET | SSE stream — pushes HTML fragments on state change |
+| `/input` | POST | Receives user interaction events from browser |
+| `/state` | GET | Returns current `ui-state.json` as JSON (for initial page load and SSE reconnection) |
+| `/files/*` | GET | Serves local files by absolute path |
+
+### File serving
+
+`/files/` serves any file from the local filesystem by absolute path:
+
+```
+/files/home/josh/images/exercises/squat.png  →  /home/josh/images/exercises/squat.png
+```
+
+In a state file, Claude references local files like:
+
+```json
+{"id": "demo", "type": "markdown", "content": "![Squat](/files/home/josh/images/squat.png)"}
+```
+
+Same trust model as the rest of the server — the security boundary is the network interface, not the file path (see [why doc](./agent-canvas-why.md#why-localhost-only-no-authentication)).
+
+---
+
+## MCP Channel Contract
+
+The plugin satisfies the Claude Code channel protocol using `@modelcontextprotocol/sdk`:
+
+```typescript
+import { Server } from '@modelcontextprotocol/sdk/server/index.js'
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+
+const mcp = new Server(
+  { name: 'agent-canvas', version: '0.0.1' },
+  {
+    capabilities: {
+      experimental: { 'claude/channel': {} }
+    },
+    instructions: 'You have a live browser UI. Edit .canvas/ui-state.json to update it.'
+  }
+)
+
+await mcp.connect(new StdioServerTransport())
+```
+
+Push browser input to Claude as channel notifications:
+
+```typescript
+await mcp.notification({
+  method: 'notifications/claude/channel',
+  params: {
+    content: 'User clicked approve on approval card',
+    meta: {
+      event: 'custom',
+      component_id: 'approval',
+      event_name: 'approve'
+    }
+  }
+})
+```
+
+Claude receives this as:
+```xml
+<channel source="agent-canvas" event="custom" component_id="approval" event_name="approve">
+User clicked approve on approval card
+</channel>
+```
+
+The `instructions` field is added to Claude's system prompt, giving it baseline awareness of the UI without requiring a skill or CLAUDE.md snippet.
+
+---
+
+## Installation & Usage
+
+### Install
+
+```bash
+bun add agent-canvas
+```
+
+Or as a project dependency — version-locked and works when someone clones the repo.
+
+### Start a session
+
+```bash
+claude --dangerously-load-development-channels server:bunx agent-canvas
+```
+
+The plugin runs as a Bun TypeScript process. No build step.
+
+### Local development without Claude Code
+
+```bash
+bunx agent-canvas --dev --project /path/to/test-project
+```
+
+`--dev` skips MCP stdio setup and runs only the HTTP server + file watcher, so you can edit `ui-state.json` by hand and see the browser update.
+
+### Multiple instances
+
+Each Claude Code session launches its own plugin process with its own port. On startup, the plugin:
+
+1. Finds a free port (auto-increments from default if taken)
+2. Prints the URL to stderr
+3. Injects a channel event into the session: `agent-canvas running at http://localhost:8771`
+
+Claude knows its own URL and can share it if asked.
+
+### Remote access via Tailscale
+
+Set `CANVAS_HOST` to bind to a non-localhost interface:
+
+```bash
+CANVAS_HOST=0.0.0.0 claude --dangerously-load-development-channels server:bunx agent-canvas
+```
+
+Tailscale provides its own authentication layer (WireGuard), so the no-auth design still holds — the trust boundary extends from "this machine" to "your Tailscale network."
+
+---
+
+## Behavior
+
+**Invalid state file:** If Claude writes malformed JSON to `ui-state.json`, the plugin shows an error alert component in the browser with the parse error. The previous valid state remains visible beneath it.
+
+**SSE reconnection:** The state file is the source of truth. On reconnect, the browser fetches `/state` and re-renders from the current file. No missed-update tracking needed — the file always has the complete state.
+
+---
+
+## Constraints
+
+- **Session must be open** — channel events are lost if the Claude Code session closes
+- **Single project root** — one project root per session, resolved at startup
+- **No authentication** — binds to localhost by default; remote access via `CANVAS_HOST` assumes a trusted network (e.g., Tailscale)
+- **File write debounce** — rapid writes are debounced to avoid partial-write renders
+- **Bun required** — channel plugins require Bun
+- **Research preview** — requires `--dangerously-load-development-channels` flag; protocol may change before GA
+
+---
+
+## Non-goals for v1
+
+- Multi-root workspace support
+- Built-in authentication (rely on network-level trust: localhost or Tailscale)
+- Custom component types defined by projects
+- Persistent UI state snapshots across sessions
+- CLI wrapper that hides the `--dangerously-load-development-channels` flag

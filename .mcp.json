@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agent-canvas": {
+      "command": "bun",
+      "args": ["./channel/index.ts"]
+    }
+  }
+}
