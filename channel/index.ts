@@ -115,7 +115,7 @@ function renderComponent(comp: Component): string {
       return `<div id="${comp.id}" class="component">${comp.content ?? ''}</div>`
 
     case 'markdown':
-      return `<div id="${comp.id}" class="component prose max-w-none">${marked.parse(comp.content ?? '')}</div>`
+      return `<div id="${comp.id}" class="component prose max-w-none">${marked.parse(comp.content ?? '', { async: false })}</div>`
 
     case 'form':
       return renderForm(comp)
@@ -174,8 +174,8 @@ function renderAllComponents(state: UIState): string {
   const layoutClass = state.layout === 'grid'
     ? 'grid grid-cols-1 md:grid-cols-2 gap-4'
     : state.layout === 'sidebar'
-    ? 'grid grid-cols-1 md:grid-cols-3 gap-4'
-    : 'flex flex-col gap-4'
+    ? 'grid grid-cols-1 md:grid-cols-3 gap-6'
+    : 'flex flex-col gap-6'
 
   const components = state.components.map((comp, i) => {
     const html = renderComponent(comp)
@@ -211,6 +211,17 @@ function pushToClients(html: string): void {
     }
   }
 }
+
+// Keepalive ping every 30s to prevent connection timeout
+setInterval(() => {
+  for (const controller of sseClients) {
+    try {
+      controller.enqueue(new TextEncoder().encode(': keepalive\n\n'))
+    } catch {
+      sseClients.delete(controller)
+    }
+  }
+}, 30_000)
 
 // --- File Watcher ---
 
@@ -391,11 +402,13 @@ function getPageHtml(): string {
   <link href="https://cdn.jsdelivr.net/npm/daisyui@4/dist/full.css" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com/3.4"></script>
 </head>
-<body class="bg-base-300 min-h-screen p-4 md:p-6">
-  <header class="mb-6">
-    <h1 id="page-title" class="text-2xl font-bold text-base-content">${title}</h1>
-  </header>
-  <div id="canvas"></div>
+<body class="bg-base-300 min-h-screen">
+  <div class="max-w-5xl mx-auto px-6 md:px-10 py-6 md:py-8">
+    <header class="mb-6">
+      <h1 id="page-title" class="text-2xl font-bold text-base-content">${title}</h1>
+    </header>
+    <div id="canvas"></div>
+  </div>
 
   <div id="error-banner" style="display:none" class="fixed top-4 right-4 alert alert-error shadow-lg max-w-md z-50">
     <span id="error-text"></span>
@@ -418,13 +431,7 @@ function getPageHtml(): string {
           console.error('SSE parse error:', err)
         }
       }
-      evtSource.onerror = () => {
-        evtSource.close()
-        // Reconnect after 1 second
-        setTimeout(() => {
-          connect()
-        }, 1000)
-      }
+      // EventSource auto-reconnects on error — no manual close needed
     }
 
     // Bind data-input-event click handlers

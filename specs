@@ -108,13 +108,13 @@ Claude Code session
 │  • SSE endpoint for browser push       │
 │  • /input endpoint receives user events│
 └───────┬────────────────────────────────┘
-        │ SSE (push HTML fragments)
+        │ SSE (push rendered HTML)
         │ HTTP POST (user input)
         │
 ┌───────▼────────────────────────────────┐
 │        Browser Tab (localhost)         │
 │                                        │
-│  • HTMX handles SSE → DOM swaps        │
+│  • SSE listener re-renders on update    │
 │  • DaisyUI + Tailwind for styling      │
 │  • User actions POST to /input         │
 └────────────────────────────────────────┘
@@ -124,12 +124,9 @@ Claude Code session
 
 1. Claude edits `.canvas/ui-state.json`
 2. File watcher detects the change
-3. Plugin diffs old vs new state at the component level (by `id`)
-4. Changed components are rendered to HTML fragments
-5. Fragments are pushed to the browser over SSE
-6. HTMX swaps the affected DOM nodes
-
-On any structural change (component added or removed), the plugin re-renders all components in array order. This keeps DOM order consistent with the state file.
+3. Plugin renders all components to HTML
+4. Full rendered output is pushed to the browser over SSE
+5. Browser replaces the component container with the new HTML
 
 ### Browser → Claude
 
@@ -229,9 +226,8 @@ The `/input` endpoint returns `202 Accepted` immediately. It never blocks waitin
 
 | Route | Method | Purpose |
 |---|---|---|
-| `/` | GET | Serves the browser page |
-| `/client.js` | GET | Serves the client script |
-| `/events` | GET | SSE stream — pushes HTML fragments on state change |
+| `/` | GET | Serves the browser page (HTML + inline JS) |
+| `/events` | GET | SSE stream — pushes rendered HTML on state change |
 | `/input` | POST | Receives user interaction events from browser |
 | `/state` | GET | Returns current `ui-state.json` as JSON (for initial page load and SSE reconnection) |
 | `/files/*` | GET | Serves local files by absolute path |
