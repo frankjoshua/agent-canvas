@@ -2,5 +2,12 @@
   "name": "agent-canvas",
   "description": "Live browser UI for Claude Code sessions, driven by a watched JSON state file.",
   "version": "0.0.1",
+  "author": {
+    "name": "Joshua Frank",
+    "url": "https://github.com/frankjoshua"
+  },
+  "homepage": "https://github.com/frankjoshua/agent-canvas",
+  "repository": "https://github.com/frankjoshua/agent-canvas",
+  "license": "MIT",
   "keywords": ["canvas", "ui", "browser", "channel", "mcp"]
 }

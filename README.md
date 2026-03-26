@@ -2,29 +2,27 @@
 
 A Claude Code channel plugin that gives a running session a live browser UI. Claude writes a JSON file, and the browser updates instantly.
 
-## Install
-
-```bash
-bun add agent-canvas
-```
-
 ## Usage
 
-### With Claude Code
+### As a plugin (recommended)
 
 ```bash
-claude --dangerously-load-development-channels server:bunx agent-canvas
+claude --dangerously-load-development-channels plugin:/path/to/agent-canvas
 ```
 
-The plugin watches `.canvas/ui-state.json` in your project and pushes changes to a browser tab via SSE. User interactions (button clicks, form submissions) flow back to Claude as channel events.
+This loads the channel, MCP server, and `/canvas` skill automatically. No setup needed in your target project.
+
+Optionally create `.canvas/ui-default.json` in your project to define a starting layout.
 
 ### Dev mode (without Claude Code)
 
 ```bash
-bunx agent-canvas --dev --project /path/to/your-project
+cd /path/to/agent-canvas
+bun install
+CANVAS_PORT=8766 bun channel/index.ts --dev --project /path/to/your-project
 ```
 
-Runs the HTTP server and file watcher only. Edit `.canvas/ui-state.json` by hand and see the browser update live. Useful for testing layouts.
+Runs the HTTP server and file watcher only. Edit `.canvas/ui-state.json` by hand and see the browser update live.
 
 ### Network access
 
@@ -69,7 +67,7 @@ Clicks send a channel event to Claude with the event name and parent component I
 
 ## Multiple instances
 
-Each session gets its own port. The plugin auto-increments from the default if a port is in use. The URL is printed to stderr and injected into the Claude Code session on startup.
+Each session gets its own port. The URL is printed to stderr and injected into the Claude Code session on startup.
 
 ## Requirements
 
