@@ -334,15 +334,9 @@ Each Claude Code session launches its own plugin process with its own port. On s
 
 Claude knows its own URL and can share it if asked.
 
-### Remote access via Tailscale
+### Network access
 
-Set `CANVAS_HOST` to bind to a non-localhost interface:
-
-```bash
-CANVAS_HOST=0.0.0.0 claude --dangerously-load-development-channels server:bunx agent-canvas
-```
-
-Tailscale provides its own authentication layer (WireGuard), so the no-auth design still holds — the trust boundary extends from "this machine" to "your Tailscale network."
+The server binds to `0.0.0.0` by default — reachable from any device on the same network. This allows access from phones, tablets, or other machines (e.g., via Tailscale). Override the bind address with `CANVAS_HOST` if needed.
 
 ---
 
@@ -358,7 +352,7 @@ Tailscale provides its own authentication layer (WireGuard), so the no-auth desi
 
 - **Session must be open** — channel events are lost if the Claude Code session closes
 - **Single project root** — one project root per session, resolved at startup
-- **No authentication** — binds to localhost by default; remote access via `CANVAS_HOST` assumes a trusted network (e.g., Tailscale)
+- **No authentication** — binds to `0.0.0.0`, accessible to any device on the network. Security relies on network-level trust (e.g., Tailscale, LAN)
 - **File write debounce** — rapid writes are debounced to avoid partial-write renders
 - **Bun required** — channel plugins require Bun
 - **Research preview** — requires `--dangerously-load-development-channels` flag; protocol may change before GA

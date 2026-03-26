@@ -172,7 +172,7 @@ function renderLog(comp: Component): string {
 
 function renderAllComponents(state: UIState): string {
   const layoutClass = state.layout === 'grid'
-    ? 'grid grid-cols-1 md:grid-cols-2 gap-4'
+    ? 'grid grid-cols-1 md:grid-cols-2 gap-6'
     : state.layout === 'sidebar'
     ? 'grid grid-cols-1 md:grid-cols-3 gap-6'
     : 'flex flex-col gap-6'
@@ -254,7 +254,7 @@ function findFreePort(start: number): Promise<number> {
   return new Promise((resolve) => {
     const test = Bun.serve({
       port: start,
-      hostname: process.env.CANVAS_HOST ?? '127.0.0.1',
+      hostname: process.env.CANVAS_HOST ?? '0.0.0.0',
       fetch() { return new Response('') },
     })
     const port = test.port
@@ -264,7 +264,7 @@ function findFreePort(start: number): Promise<number> {
 }
 
 async function startHttpServer(): Promise<number> {
-  const host = process.env.CANVAS_HOST ?? '127.0.0.1'
+  const host = process.env.CANVAS_HOST ?? '0.0.0.0'
   let port = Number(process.env.CANVAS_PORT ?? DEFAULT_PORT)
 
   const server = Bun.serve({
@@ -400,19 +400,19 @@ function getPageHtml(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${title}</title>
   <link href="https://cdn.jsdelivr.net/npm/daisyui@4/dist/full.css" rel="stylesheet">
-  <script src="https://cdn.tailwindcss.com/3.4"></script>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 </head>
 <body class="bg-base-300 min-h-screen">
-  <div class="max-w-5xl mx-auto px-6 md:px-10 py-6 md:py-8">
+  <div class="max-w-5xl mx-auto px-6 md:px-10 py-8">
     <header class="mb-6">
       <h1 id="page-title" class="text-2xl font-bold text-base-content">${title}</h1>
     </header>
     <div id="canvas"></div>
   </div>
 
-  <div id="error-banner" style="display:none" class="fixed top-4 right-4 alert alert-error shadow-lg max-w-md z-50">
+  <div id="error-banner" class="hidden fixed top-4 right-4 alert alert-error shadow-lg max-w-md z-50">
     <span id="error-text"></span>
-    <button class="btn btn-sm btn-ghost" onclick="this.parentElement.style.display='none'">dismiss</button>
+    <button class="btn btn-sm btn-ghost" onclick="this.parentElement.classList.add('hidden')">dismiss</button>
   </div>
 
   <script>
@@ -510,7 +510,7 @@ async function main() {
         capabilities: {
           experimental: { 'claude/channel': {} },
         },
-        instructions: `You have a live browser UI connected to this session via .canvas/ui-state.json. Edit that file to update the UI — changes appear in the browser instantly. Component types: html (raw DaisyUI/Tailwind HTML), markdown, form, log. User interactions arrive as <channel source="agent-canvas"> events. The UI is at http://${process.env.CANVAS_HOST ?? '127.0.0.1'}:${port}`,
+        instructions: `You have a live browser UI connected to this session via .canvas/ui-state.json. Edit that file to update the UI — changes appear in the browser instantly. Component types: html (raw DaisyUI/Tailwind HTML), markdown, form, log. User interactions arrive as <channel source="agent-canvas"> events. The UI is at http://${process.env.CANVAS_HOST ?? '0.0.0.0'}:${port}`,
       },
     )
     await mcp.connect(new StdioServerTransport())
@@ -519,7 +519,7 @@ async function main() {
     void mcp.notification({
       method: 'notifications/claude/channel',
       params: {
-        content: `agent-canvas running at http://${process.env.CANVAS_HOST ?? '127.0.0.1'}:${port}`,
+        content: `agent-canvas running at http://${process.env.CANVAS_HOST ?? '0.0.0.0'}:${port}`,
         meta: { event: 'startup' },
       },
     })

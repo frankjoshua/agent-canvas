@@ -26,13 +26,9 @@ bunx agent-canvas --dev --project /path/to/your-project
 
 Runs the HTTP server and file watcher only. Edit `.canvas/ui-state.json` by hand and see the browser update live. Useful for testing layouts.
 
-### Remote access
+### Network access
 
-Bind to a non-localhost interface for access over Tailscale or similar:
-
-```bash
-CANVAS_HOST=0.0.0.0 claude --dangerously-load-development-channels server:bunx agent-canvas
-```
+The server binds to `0.0.0.0` by default — accessible from any device on the same network (phones, tablets, other machines via Tailscale, etc.). Override with `CANVAS_HOST` if needed.
 
 ## State file
 
