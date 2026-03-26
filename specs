@@ -155,7 +155,6 @@ If `.canvas/ui-default.json` exists and `ui-state.json` does not, the plugin cop
   "title": "Page Title",
   "theme": "dark",
   "layout": "stack",
-  "autoOpen": true,
   "components": []
 }
 ```
@@ -166,7 +165,6 @@ If `.canvas/ui-default.json` exists and `ui-state.json` does not, the plugin cop
 | `title` | `string` | `"agent-canvas"` | Browser tab title and page heading |
 | `theme` | `string` | `"dark"` | DaisyUI theme name |
 | `layout` | `"stack" \| "grid" \| "sidebar"` | `"stack"` | Top-level layout mode |
-| `autoOpen` | `boolean` | `true` | Auto-open browser tab on session start |
 | `components` | `Component[]` | `[]` | Ordered list of UI components |
 
 **Layout modes:**

@@ -8,7 +8,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { readFileSync, writeFileSync, existsSync, copyFileSync, watchFile, statSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync, watchFile } from 'fs'
 import { join, resolve } from 'path'
 import { marked } from 'marked'
 
@@ -73,18 +73,17 @@ interface UIState {
 let currentState: UIState = { components: [] }
 let previousState: UIState = { components: [] }
 
-function readState(): UIState {
+function readState(): { state: UIState; error?: string } {
   try {
     const raw = readFileSync(statePath, 'utf-8')
-    return JSON.parse(raw)
-  } catch {
-    return { components: [] }
+    return { state: JSON.parse(raw) }
+  } catch (err) {
+    return { state: currentState, error: err instanceof Error ? err.message : String(err) }
   }
 }
 
 function ensureState(): void {
   if (!existsSync(stateDir)) {
-    const { mkdirSync } = require('fs')
     mkdirSync(stateDir, { recursive: true })
   }
   if (!existsSync(statePath)) {
@@ -96,12 +95,11 @@ function ensureState(): void {
         title: 'agent-canvas',
         theme: 'dark',
         layout: 'stack',
-        autoOpen: true,
         components: []
       }, null, 2))
     }
   }
-  currentState = readState()
+  currentState = readState().state
   previousState = { ...currentState }
 }
 
@@ -200,8 +198,10 @@ function renderAllComponents(state: UIState): string {
 // --- SSE ---
 
 const sseClients = new Set<ReadableStreamDefaultController>()
+let lastPushedHtml = ''
 
 function pushToClients(html: string): void {
+  lastPushedHtml = html
   const data = `data: ${JSON.stringify(html)}\n\n`
   for (const controller of sseClients) {
     try {
@@ -226,11 +226,32 @@ setInterval(() => {
 // --- File Watcher ---
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+let hasError = false
 
 function onFileChange(): void {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
-    const newState = readState()
+    const { state: newState, error } = readState()
+
+    if (error) {
+      if (!hasError) {
+        hasError = true
+        const html = renderAllComponents(currentState)
+          + `<div class="alert alert-error shadow-lg mt-4"><span>JSON parse error: ${error}</span></div>`
+        pushToClients(html)
+      }
+      return
+    }
+
+    if (hasError) {
+      // Recovered from error — force a re-render
+      hasError = false
+      previousState = currentState
+      currentState = newState
+      pushToClients(renderAllComponents(currentState))
+      return
+    }
+
     if (JSON.stringify(newState) === JSON.stringify(currentState)) return
 
     previousState = currentState
@@ -250,22 +271,9 @@ function startWatcher(): void {
 
 // --- HTTP Server ---
 
-function findFreePort(start: number): Promise<number> {
-  return new Promise((resolve) => {
-    const test = Bun.serve({
-      port: start,
-      hostname: process.env.CANVAS_HOST ?? '0.0.0.0',
-      fetch() { return new Response('') },
-    })
-    const port = test.port
-    test.stop()
-    resolve(port)
-  })
-}
-
 async function startHttpServer(): Promise<number> {
   const host = process.env.CANVAS_HOST ?? '0.0.0.0'
-  let port = Number(process.env.CANVAS_PORT ?? DEFAULT_PORT)
+  const port = Number(process.env.CANVAS_PORT ?? DEFAULT_PORT)
 
   const server = Bun.serve({
     port,
@@ -285,8 +293,8 @@ async function startHttpServer(): Promise<number> {
         const stream = new ReadableStream({
           start(controller) {
             sseClients.add(controller)
-            // Send initial state
-            const html = renderAllComponents(currentState)
+            // Send last known state (includes error if present)
+            const html = lastPushedHtml || renderAllComponents(currentState)
             controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(html)}\n\n`))
           },
           cancel(controller) {
@@ -316,7 +324,9 @@ async function startHttpServer(): Promise<number> {
           try {
             const payload = await req.json()
             deliverInput(payload)
-          } catch {}
+          } catch (err) {
+            process.stderr.write(`agent-canvas /input error: ${err}\n`)
+          }
           return new Response(null, { status: 202 })
         })()
       }
@@ -325,7 +335,6 @@ async function startHttpServer(): Promise<number> {
       if (url.pathname.startsWith('/files/')) {
         const filePath = '/' + url.pathname.slice(7)
         try {
-          if (filePath.includes('..')) return new Response('bad path', { status: 400 })
           const data = readFileSync(filePath)
           const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
           return new Response(data, {
@@ -340,9 +349,9 @@ async function startHttpServer(): Promise<number> {
     },
   })
 
-  port = server.port
-  process.stderr.write(`agent-canvas: http://${host}:${port}\n`)
-  return port
+  const actualPort = server.port
+  process.stderr.write(`agent-canvas: http://${host}:${actualPort}\n`)
+  return actualPort
 }
 
 function getMime(ext: string): string {
