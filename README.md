@@ -2,15 +2,14 @@
 
 A Claude Code channel plugin that gives a running session a live browser UI. Claude writes a JSON file, and the browser updates instantly.
 
-## Usage
-
-### As a plugin (recommended)
+## Install
 
 ```bash
-claude --dangerously-load-development-channels plugin:/path/to/agent-canvas
+claude plugin marketplace add frankjoshua/agent-canvas
+claude plugin install agent-canvas
 ```
 
-This loads the channel, MCP server, and `/canvas` skill automatically. No setup needed in your target project.
+This installs the channel plugin, MCP server, and `/canvas` skill. No other setup needed.
 
 Optionally create `.canvas/ui-default.json` in your project to define a starting layout.
 

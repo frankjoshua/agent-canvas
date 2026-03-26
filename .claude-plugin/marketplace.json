@@ -1,0 +1,14 @@
+{
+  "name": "agent-canvas",
+  "owner": {
+    "name": "Joshua Frank",
+    "url": "https://github.com/frankjoshua"
+  },
+  "plugins": [
+    {
+      "name": "agent-canvas",
+      "description": "Live browser UI for Claude Code sessions — driven by a watched JSON state file",
+      "source": "./"
+    }
+  ]
+}
