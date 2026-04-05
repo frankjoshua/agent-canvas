@@ -1,68 +1,64 @@
 ---
 name: canvas
-description: Update the browser UI, show progress, display data, or collect user input via .canvas/ui-state.json. Also handles starting the channel, checking connection, and troubleshooting.
+description: Update the browser UI, show progress, display data, or collect user input via .canvas/ui-state.json. Also handles checking connection, starting the channel, and troubleshooting.
 ---
 
 # agent-canvas
 
 A channel plugin that gives this session a live browser UI. You edit `.canvas/ui-state.json`, a file watcher picks up the change, and the browser updates instantly via SSE.
 
-## Prerequisites
+## Is the channel connected?
 
-- **Bun** must be installed (`which bun` to check)
-- The session must have been started with `--dangerously-load-development-channels` (channels are in research preview). If the session wasn't started with this flag, channels cannot connect — tell the user to restart with it.
-
-## Is the channel running?
-
-Check for a startup channel event in your conversation context:
+Look for a channel event from `agent-canvas` in your conversation context. The channel sends a startup notification when it connects:
 
 ```
-<channel source="agent-canvas" event="startup">agent-canvas running at http://0.0.0.0:8765</channel>
+<channel source="agent-canvas" ...>agent-canvas running at http://0.0.0.0:8765</channel>
 ```
 
-If you see this, the channel is connected. The URL is in the message. Skip to "State file structure" below.
+**If you see a channel event from agent-canvas**: The channel is connected. The URL is in the message. Skip to "State file structure".
 
-If you do NOT see a startup event, you must start the channel yourself. Do NOT silently write to `.canvas/ui-state.json` hoping it works — without the channel process, nothing will appear in the browser.
+**If you do NOT see any agent-canvas channel events**: The channel is not running. Do NOT silently write to `.canvas/ui-state.json` hoping it works — without the channel process, nothing appears in the browser. Follow the steps below.
 
-**Resumed sessions**: If this session was resumed (`--continue`), the channel process from the original session is gone. You need to restart it.
+## How the channel normally starts
 
-## Starting the channel
+When the plugin is properly installed, Claude Code handles everything:
 
-The plugin is installed at a known path. Start it in the background:
+1. Claude Code reads the plugin's `.mcp.json` at session startup
+2. It spawns `bash start.sh` which runs `bun channel/index.ts`
+3. The channel connects via stdio MCP transport and declares `claude/channel` capability
+4. It sends a startup notification that appears as a channel event in conversation
+5. It starts watching `.canvas/ui-state.json` for changes
+
+This requires:
+- **Plugin installed**: `claude plugin install agent-canvas` (installs to `~/.claude/plugins/`)
+- **Channels enabled**: Session started with `--channels plugin:agent-canvas@agent-canvas-marketplace`
+- **For custom/dev plugins**: Add `--dangerously-load-development-channels` flag (channels are in research preview)
+- **Bun installed**: The channel server runs on [Bun](https://bun.sh)
+
+## Starting the channel manually (fallback)
+
+If the channel isn't connected — plugin not installed, session resumed (`--continue` loses channel processes), or channels not enabled — you can start it in dev mode.
+
+Run the startup script:
 
 ```bash
-# 1. Find a free port (default range 8765-8770)
-for p in 8765 8766 8767 8768 8769 8770; do
-  curl -s --max-time 0.2 http://localhost:$p >/dev/null 2>&1 || { PORT=$p; break; }
-done
+# Find the plugin directory
+PLUGIN_DIR="$(find ~/.claude/plugins -type d -name agent-canvas -path '*/marketplaces/*' 2>/dev/null | head -1)"
 
-# 2. Find the plugin directory
-PLUGIN_DIR="$(find ~/.claude/plugins -type d -name agent-canvas -path "*/marketplaces/*" 2>/dev/null | head -1)"
-# Fallback for dev: PLUGIN_DIR="/home/josh/development/workspace/agent-canvas"
-
-# 3. Install deps if needed, then start in background
-bun install --no-summary --cwd "$PLUGIN_DIR" 2>/dev/null
-CANVAS_PORT=$PORT nohup bun "$PLUGIN_DIR/channel/index.ts" \
-  --dev --project "$(pwd)" > /tmp/canvas-$PORT.log 2>&1 &
+# Start canvas (finds free port, starts in background, verifies)
+bash "$PLUGIN_DIR/scripts/canvas-start.sh" --project "$(pwd)"
 ```
 
-**Important**: Run `bun channel/index.ts` directly — do NOT use `start.sh` (the `exec` in it fails in some environments).
+The script:
+- Scans ports 8765-8770 for a free one
+- Installs dependencies if needed
+- Starts the server in background with `nohup`
+- Verifies the process is running and responding
+- Prints the URL and PID
 
-Use `--dev` mode when launching manually (it skips the stdio MCP connection which only works when Claude Code spawns the process).
+Tell the user the URL so they can open it in a browser.
 
-### Verify it's running
-
-```bash
-# Check the log for the URL
-cat /tmp/canvas-$PORT.log
-
-# Confirm it's serving
-curl -s http://localhost:$PORT | head -5
-```
-
-You should see `agent-canvas: http://0.0.0.0:<port>` in the log. Tell the user the URL so they can open it.
-
-The server binds to `0.0.0.0` — accessible from other devices on the same network (phones, tablets, Tailscale).
+**Dev mode note**: Manual launch uses `--dev` which skips the MCP stdio connection. The UI works fully (file watching, SSE, forms, buttons) but user interactions won't arrive as channel events in your conversation — they only flow through the HTTP server.
 
 ## State file structure
 
