@@ -59,5 +59,13 @@ if ! curl -s --max-time 1 "http://localhost:$PORT" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "agent-canvas running at http://0.0.0.0:${PORT}"
+# Build the Tailscale FQDN URL (works from any device on the tailnet)
+FQDN=$(tailscale status --json 2>/dev/null | jq -r '.Self.DNSName' 2>/dev/null | sed 's/\.$//')
+if [[ -n "$FQDN" && "$FQDN" != "null" ]]; then
+  URL="http://${FQDN}:${PORT}"
+else
+  URL="http://localhost:${PORT}"
+fi
+
+echo "agent-canvas running at ${URL}"
 echo "PID: $CANVAS_PID | Log: $LOG"

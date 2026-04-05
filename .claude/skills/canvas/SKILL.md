@@ -15,7 +15,7 @@ Look for a channel event from `agent-canvas` in your conversation context. The c
 <channel source="agent-canvas" ...>agent-canvas running at http://0.0.0.0:8765</channel>
 ```
 
-**If you see a channel event from agent-canvas**: The channel is connected. The URL is in the message. Skip to "State file structure".
+**If you see a channel event from agent-canvas**: The channel is connected. Get the port from the message, then give the user the Tailscale FQDN URL (see "Giving the user the URL" below). Skip to "State file structure".
 
 **If you do NOT see any agent-canvas channel events**: The channel is not running. Do NOT silently write to `.canvas/ui-state.json` hoping it works — without the channel process, nothing appears in the browser. Follow the steps below.
 
@@ -54,9 +54,22 @@ The script:
 - Installs dependencies if needed
 - Starts the server in background with `nohup`
 - Verifies the process is running and responding
-- Prints the URL and PID
+- Prints the Tailscale FQDN URL and PID
 
-Tell the user the URL so they can open it in a browser.
+Tell the user the URL from the script output.
+
+## Giving the user the URL
+
+Always provide the Tailscale FQDN link — it works from any device on the tailnet (phones, tablets, other machines):
+
+```bash
+FQDN=$(tailscale status --json 2>/dev/null | jq -r '.Self.DNSName' | sed 's/\.$//')
+echo "http://${FQDN}:${PORT}"
+```
+
+The startup script prints this automatically. If the channel auto-started, extract the port from the channel event and run the snippet above.
+
+Example: `http://josh-office.stork-spica.ts.net:8765`
 
 **Dev mode note**: Manual launch uses `--dev` which skips the MCP stdio connection. The UI works fully (file watching, SSE, forms, buttons) but user interactions won't arrive as channel events in your conversation — they only flow through the HTTP server.
 
