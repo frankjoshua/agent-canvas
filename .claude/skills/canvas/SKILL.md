@@ -1,11 +1,47 @@
 ---
 name: canvas
-description: Use when agent-canvas channel is connected and you need to update the browser UI, show progress, display data, or collect user input via .canvas/ui-state.json
+description: Update the browser UI, show progress, display data, or collect user input via .canvas/ui-state.json. Also handles checking connection status and troubleshooting.
 ---
 
 # agent-canvas
 
-You have a live browser UI. Edit `.canvas/ui-state.json` to update it — changes appear instantly.
+A channel plugin that gives this session a live browser UI. You edit `.canvas/ui-state.json`, a file watcher picks up the change, and the browser updates instantly via SSE.
+
+## Is the channel connected?
+
+Before using the canvas, verify the channel is running. Look for a startup event in your conversation context:
+
+```
+<channel source="agent-canvas" event="startup">agent-canvas running at http://0.0.0.0:8765</channel>
+```
+
+If you see this, the channel is connected and the URL is in the message. If you do NOT see a startup channel event, the channel is **not connected** and writing to `.canvas/ui-state.json` will have no effect in the browser. Tell the user.
+
+### How the channel starts
+
+The plugin is an MCP server registered in `.mcp.json`. Claude Code spawns it automatically on session start. The startup flow is:
+
+1. Claude Code reads `.mcp.json` and runs `bash start.sh`
+2. `start.sh` runs `bun channel/index.ts --project <project-path>`
+3. The channel starts an HTTP server (default port 8765, override with `CANVAS_PORT`)
+4. It connects to Claude Code via stdio MCP transport
+5. It sends a startup notification — this appears as the channel event above
+6. It starts watching `.canvas/ui-state.json` for changes
+
+### If the channel is not connected
+
+Common reasons and fixes:
+
+- **Plugin not installed**: User needs to run `claude plugin install agent-canvas`
+- **Bun not installed**: The channel requires [Bun](https://bun.sh). Check with `which bun`
+- **Port conflict**: Another process on port 8765. Set `CANVAS_PORT=8766` in environment
+- **Session started without channel support**: Channels require Claude Code v2.1.80+
+
+Tell the user what's wrong and how to fix it. Do NOT silently write to the state file hoping it works.
+
+### Finding the URL
+
+The URL is in the startup channel event. Default: `http://0.0.0.0:8765`. The server binds to `0.0.0.0` so it's accessible from other devices on the same network (phones, tablets, Tailscale).
 
 ## State file structure
 
